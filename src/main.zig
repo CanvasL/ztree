@@ -2,36 +2,46 @@ const std = @import("std");
 const ztree = @import("ztree");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-
+    const allocator = std.heap.page_allocator;
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const path = if (args.len > 1) args[1] else ".";
+    var path: []const u8 = ".";
+    var showHidden = false;
+    var dirsOnly = false;
+    var maxDepth: ?usize = null;
 
-    var cwd = try std.fs.cwd().openDir(path, .{ .iterate = true });
-    defer cwd.close();
-
-    std.debug.print("{s}\n", .{path});
-
-    try printTree(cwd, "");
-}
-
-pub fn printTree(dir: std.fs.Dir, prefix: []const u8) !void {
-    var it = dir.iterate();
-
-    while (try it.next()) |entry| {
-        std.debug.print("{s}├── {s}\n", .{ prefix, entry.name });
-
-        if (entry.kind == .directory) {
-            var subdir = try dir.openDir(entry.name, .{ .iterate = true });
-            defer subdir.close();
-
-            var buf: [256]u8 = undefined;
-            const newPrefix = try std.fmt.bufPrint(&buf, "{s}│   ", .{prefix});
-
-            try printTree(subdir, newPrefix);
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            std.debug.print(
+                \\Usage: ztree [OPTIONS] [PATH]
+                \\
+                \\  PATH          Directory to list (default: .)
+                \\
+                \\Options:
+                \\  -a            Show hidden files and directories
+                \\  -d            List directories only
+                \\  -L=<N>        Limit depth of directory tree to N levels
+                \\  -h, --help    Show this help message
+                \\
+            , .{});
+            return;
+        } else if (std.mem.eql(u8, arg, "-a")) {
+            showHidden = true;
+        } else if (std.mem.eql(u8, arg, "-d")) {
+            dirsOnly = true;
+        } else if (std.mem.startsWith(u8, arg, "-L=")) {
+            maxDepth = try std.fmt.parseInt(usize, arg[3..], 10);
+        } else {
+            path = arg;
         }
     }
+
+    var root = try std.fs.cwd().openDir(path, .{ .iterate = true });
+    defer root.close();
+
+    std.debug.print("{s}\n", .{path});
+    try ztree.printTree(root, "", allocator, showHidden, dirsOnly, maxDepth, 0);
 }
