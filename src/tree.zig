@@ -12,13 +12,20 @@ pub fn printTree(
     maxDepth: ?usize,
     currentDepth: usize,
 ) !void {
+    const stdout = std.fs.File.stdout();
+    var buf: [8192]u8 = undefined;
+    var fw = stdout.writer(&buf);
+    const w = &fw.interface;
+    const tty = std.io.tty.Config.detect(stdout);
+
     var numDirs: usize = 0;
     var numFiles: usize = 0;
-    try printTreeInner(dir, prefix, allocator, showHidden, dirsOnly, maxDepth, currentDepth, &numDirs, &numFiles);
-    std.debug.print("\n{d} {s}, {d} {s}\n", .{
+    try printTreeInner(dir, prefix, allocator, showHidden, dirsOnly, maxDepth, currentDepth, &numDirs, &numFiles, w, tty);
+    try w.print("\n{d} {s}, {d} {s}\n", .{
         numDirs,  if (numDirs == 1) "directory" else "directories",
         numFiles, if (numFiles == 1) "file" else "files",
     });
+    try w.flush();
 }
 
 fn printTreeInner(
@@ -31,6 +38,8 @@ fn printTreeInner(
     currentDepth: usize,
     numDirs: *usize,
     numFiles: *usize,
+    w: *std.io.Writer,
+    tty: std.io.tty.Config,
 ) !void {
     if (maxDepth != null and maxDepth.? <= currentDepth) return;
 
@@ -47,7 +56,11 @@ fn printTreeInner(
         const marker = if (isLast) "└── " else "├── ";
 
         if (!dirsOnly or entry.kind == .directory) {
-            std.debug.print("{s}{s}{s}\n", .{ prefix, marker, entry.name });
+            try w.print("{s}{s}", .{ prefix, marker });
+            try setEntryColor(tty, w, entry.kind);
+            try w.print("{s}", .{entry.name});
+            try tty.setColor(w, .reset);
+            try w.print("\n", .{});
         }
 
         if (entry.kind == .directory) {
@@ -62,10 +75,31 @@ fn printTreeInner(
                 else
                     try std.fmt.bufPrint(&buf, "{s}│   ", .{prefix});
 
-            try printTreeInner(subdir, newPrefix, allocator, showHidden, dirsOnly, maxDepth, currentDepth + 1, numDirs, numFiles);
+            try printTreeInner(subdir, newPrefix, allocator, showHidden, dirsOnly, maxDepth, currentDepth + 1, numDirs, numFiles, w, tty);
         } else {
             numFiles.* += 1;
         }
+    }
+}
+
+fn setEntryColor(tty: std.io.tty.Config, w: *std.io.Writer, kind: std.fs.File.Kind) !void {
+    switch (kind) {
+        .file => {
+            try tty.setColor(w, .green);
+        },
+        .directory => {
+            try tty.setColor(w, .cyan);
+        },
+        .sym_link => {
+            try tty.setColor(w, .magenta);
+        },
+        .named_pipe => {
+            try tty.setColor(w, .yellow);
+        },
+        .unix_domain_socket => {
+            try tty.setColor(w, .red);
+        },
+        else => {},
     }
 }
 

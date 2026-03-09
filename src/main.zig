@@ -42,6 +42,15 @@ pub fn main() !void {
     var root = try std.fs.cwd().openDir(path, .{ .iterate = true });
     defer root.close();
 
-    std.debug.print("{s}\n", .{path});
+    const stdout = std.fs.File.stdout();
+    const tty = std.io.tty.Config.detect(stdout);
+    var path_buf: [512]u8 = undefined;
+    var pw = stdout.writer(&path_buf);
+    const w = &pw.interface;
+    try tty.setColor(w, .bold);
+    try w.print("{s}\n", .{path});
+    try tty.setColor(w, .reset);
+    try w.flush();
+
     try ztree.printTree(root, "", allocator, showHidden, dirsOnly, maxDepth, 0);
 }
